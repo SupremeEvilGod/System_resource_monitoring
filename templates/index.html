@@ -5,105 +5,204 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="font-src 'self' data: https://cdnjs.cloudflare.com">
     <title>System Resource Monitoring</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
-            text-align: center;
             margin: 10px;
             display: grid;
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr;
+            grid-template-rows: auto 1fr 1fr;
             gap: 20px;
-            height: 100vh;
+            min-height: 100vh;
             padding: 20px;
             background: linear-gradient(to right, #000428, #004e92);
             color: white;
         }
         h1 {
-            grid-column: span 2;
+            grid-column: 1 / -1;
             text-align: center;
             font-size: 2.5em;
             text-transform: uppercase;
             text-shadow: 2px 2px 10px rgba(0, 255, 255, 0.8);
+            margin: 0;
+            padding: 20px 0;
         }
         .chart-container {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
             background: rgba(0, 0, 0, 0.8);
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
         h2 {
+            margin: 0 0 15px 0;
             text-shadow: 1px 1px 10px rgba(255, 255, 255, 0.8);
         }
         #loading {
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                font-size: 1.5em;
-                color: #00FFFF;
-                display: none;
-            }
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.5em;
+            color: #00FFFF;
+            display: none;
+        }
     </style>
-
 </head>
 <body>
     <h1>System Resource Monitoring</h1>
+    <div id="loading">Loading system metrics...</div>
+    
     <div class="chart-container">
         <h2>CPU Usage</h2>
         <canvas id="cpuChart"></canvas>
     </div>
+    
     <div class="chart-container">
         <h2>Memory Usage</h2>
         <canvas id="memoryChart"></canvas>
     </div>
+    
     <div class="chart-container">
         <h2>Disk Usage</h2>
         <canvas id="diskChart"></canvas>
     </div>
+    
     <div class="chart-container">
         <h2>Network Usage</h2>
         <canvas id="networkChart"></canvas>
     </div>
 
     <script>
+        let cpuChart, memoryChart, diskChart, networkChart;
+        const MAX_DATA_POINTS = 15;
+        
         // Configuration
         const config = {
-            LOCAL_DEV: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1',
+            LOCAL_DEV: window.location.hostname === 'localhost' || 
+                      window.location.hostname === '127.0.0.1',
             API_ENDPOINT: window.location.hostname === 'localhost' 
                 ? 'http://localhost:5000/stats' 
-                : '/stats'  // Use relative path for deployment
+                : '/stats'
         };
 
-        // Chart initialization (keep your existing initCharts function)
+        // Chart Initialization
+        function initCharts() {
+            // CPU Chart
+            cpuChart = new Chart(document.getElementById('cpuChart'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'CPU Usage (%)',
+                        borderColor: '#00FFFF',
+                        borderWidth: 3,
+                        data: [],
+                        fill: false
+                    }]
+                },
+                options: {
+                    animation: false,
+                    responsive: true,
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(0, 255, 255, 0.2)' },
+                            ticks: { color: 'white' }
+                        },
+                        y: {
+                            min: 0,
+                            max: 100,
+                            grid: { color: 'rgba(0, 255, 255, 0.2)' },
+                            ticks: { color: 'white', stepSize: 20 }
+                        }
+                    }
+                }
+            });
 
+            // Memory Chart
+            memoryChart = new Chart(document.getElementById('memoryChart'), {
+                type: 'bar',
+                data: {
+                    labels: ['Memory'],
+                    datasets: [{
+                        label: 'Usage (%)',
+                        backgroundColor: '#FF1493',
+                        data: [0],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    animation: false,
+                    scales: {
+                        y: { 
+                            min: 0, 
+                            max: 100,
+                            ticks: { stepSize: 20 }
+                        }
+                    }
+                }
+            });
+
+            // Disk Chart
+            diskChart = new Chart(document.getElementById('diskChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['Used', 'Free'],
+                    datasets: [{
+                        data: [0, 100],
+                        backgroundColor: ['#FFA500', '#555555']
+                    }]
+                }
+            });
+
+            // Network Chart
+            networkChart = new Chart(document.getElementById('networkChart'), {
+                type: 'radar',
+                data: {
+                    labels: ['Upload', 'Download'],
+                    datasets: [{
+                        label: 'MB/s',
+                        data: [0, 0],
+                        backgroundColor: 'rgba(255, 255, 0, 0.2)',
+                        borderColor: 'yellow'
+                    }]
+                },
+                options: {
+                    scales: {
+                        r: {
+                            beginAtZero: true,
+                            ticks: { 
+                                color: 'white',
+                                callback: (value) => `${value} MB/s`
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Data Fetching
         async function fetchStats() {
             document.getElementById('loading').style.display = 'block';
             try {
-                const response = await fetch('/stats');
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const response = await fetch(config.API_ENDPOINT);
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                
                 const data = await response.json();
-
-                // Add data validation
-                const requiredFields = ['cpu_usage', 'memory_usage', 'disk_usage', 'upload_speed', 'download_speed'];
-                if (!requiredFields.every(field => field in data)) {
-                    throw new Error('Missing fields in API response');
-                }
+                if (data.error) throw new Error(data.error);
 
                 // Update CPU Chart
                 const now = new Date();
-                const timeString = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`;
+                const timeLabel = `${now.getHours()}:${now.getMinutes()}:${now.getSeconds()}`;
                 
-                cpuChart.data.labels.push(timeString);
+                cpuChart.data.labels.push(timeLabel);
                 cpuChart.data.datasets[0].data.push(data.cpu_usage);
                 
-                // Keep last 15 data points
-                if (cpuChart.data.labels.length > 15) {
+                if (cpuChart.data.labels.length > MAX_DATA_POINTS) {
                     cpuChart.data.labels.shift();
                     cpuChart.data.datasets[0].data.shift();
                 }
@@ -113,33 +212,33 @@
                 memoryChart.data.datasets[0].data = [data.memory_usage];
                 memoryChart.update();
 
-                // Update Disk Chart (now shows usage vs available)
+                // Update Disk Chart
                 diskChart.data.datasets[0].data = [data.disk_usage, 100 - data.disk_usage];
                 diskChart.update();
 
-                // Update Network Chart with dynamic scaling
-                networkChart.options.scales.r.ticks.suggestedMax = Math.max(
+                // Update Network Chart
+                const maxNetworkValue = Math.max(data.upload_speed, data.download_speed) * 1.2 || 10;
+                networkChart.options.scales.r.ticks.suggestedMax = maxNetworkValue;
+                networkChart.data.datasets[0].data = [
                     data.upload_speed, 
                     data.download_speed
-                ) * 1.2;
-                networkChart.data.datasets[0].data = [data.upload_speed, data.download_speed];
+                ];
                 networkChart.update();
 
             } catch (error) {
-                console.error("Error:", error);
-                // Show error to user
-                alert(`Failed to fetch system stats: ${error.message}`);
+                console.error('Error:', error);
+                alert(`Failed to load system stats: ${error.message}`);
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
         }
 
-        // Initialize charts and start polling
-        initCharts();
-        setInterval(fetchStats, 1000);  // Update every second
-        fetchStats();  // Initial call
+        // Initialize when DOM loads
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            fetchStats();
+            setInterval(fetchStats, 1000);
+        });
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-
 </body>
 </html>
