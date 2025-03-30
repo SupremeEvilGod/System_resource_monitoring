@@ -85,7 +85,7 @@
         async function fetchStats() {
             document.getElementById('loading').style.display = 'block';
             try {
-                const response = await fetch(config.API_ENDPOINT);
+                const response = await fetch('/stats');
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
 
